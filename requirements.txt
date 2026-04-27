@@ -1,0 +1,4 @@
+matplotlib>=3.0
+numpy>=1.21
+scipy>=1.0  # Optional: faster smoothing
+pyperclip>=1.0  # Optional: clipboard support
