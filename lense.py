@@ -3,6 +3,7 @@ import json
 import os
 import re
 import sys
+import ast
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 from tkinter.scrolledtext import ScrolledText
@@ -70,10 +71,9 @@ def parse_loss_input(raw_input: str):
         try:
             entry = json.loads(line)
         except Exception:
-            # Accept single-quoted dicts
+            # Accept single-quoted Python dicts via ast.literal_eval (safer than regex)
             try:
-                fixed = re.sub(r"(?<!\\)'", '"', line)
-                entry = json.loads(fixed)
+                entry = ast.literal_eval(line)
             except Exception:
                 entry = None
         if isinstance(entry, dict) and "loss" in entry:
@@ -95,51 +95,7 @@ def parse_loss_input(raw_input: str):
 
     return parsed
 
-# ----------------------------
-# Grading
-# ----------------------------
-def calculate_grade(metrics: dict) -> str:
-    """
-    Grade based on normalized slope (drop good), signal-to-noise ratio, and exposure.
-    Expects: slope_norm (per 100 steps), snr, exposure_pct (0..1)
-    """
-    s = float(metrics.get("slope_norm", 0.0))
-    snr = float(metrics.get("snr", 0.0))
-    exposure = float(metrics.get("exposure_pct", 0.0))
 
-    score = 0
-
-    # Slope (per 100 steps): large negative is better
-    if s <= -3.0:
-        score += 4
-    elif s <= -1.5:
-        score += 3
-    elif s <= -0.5:
-        score += 2
-    elif s <= -0.1:
-        score += 1
-
-    # SNR
-    if snr >= 3.0:
-        score += 3
-    elif snr >= 2.0:
-        score += 2
-    elif snr >= 1.2:
-        score += 1
-
-    # Exposure floor bonuses (18% / 36%)
-    if exposure >= 0.36:
-        score += 2
-    elif exposure >= 0.18:
-        score += 1
-
-    if score >= 8:
-        return "A"
-    if score >= 6:
-        return "B"
-    if score >= 4:
-        return "C"
-    return "D"
 
 # ----------------------------
 # Plotting & metrics
@@ -292,19 +248,19 @@ def plot_loss_curve(logs: list[dict]):
     # Outlier highlights vs smooth (last window)
     outlier_present = False
     if len(yw) > 1:
-        std_dev = float(np.std(yw))
-        if std_dev > 0:
+        # Use MAD for robust outlier detection (already calculated as r_mad)
+        if r_mad > 1e-8:
             for i in range(win):
                 idx = len(steps) - win + i
                 if 0 < idx < len(smoothed):
-                    if abs(y[idx] - smoothed[idx]) > std_dev * 1.5:
+                    if abs(y[idx] - smoothed[idx]) > r_mad * 1.5:
                         ax1.axvspan(idx - 0.5, idx + 0.5, color="red", alpha=0.05)
                         outlier_present = True
 
-    # Epoch boundary markers (approx; based on epoch change)
+    # Epoch boundary markers (whole epoch transitions)
     drew_epoch_lines = False
     for i in range(1, len(epochs)):
-        if int(epochs[i - 1] * 100) != int(epochs[i] * 100):
+        if int(epochs[i - 1]) != int(epochs[i]):
             ax1.axvline(x=i + 1, color="gray", linestyle="--", alpha=0.25)
             drew_epoch_lines = True
 
